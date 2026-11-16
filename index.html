@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de roles de control HVDC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+/* Layout: escenarios arriba; a la izquierda esquema, veredicto y respuesta en el tiempo; a la derecha la configuración de cada estación y el evento. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --ink:#18222d; --muted:#5b6876; --rule:#d5dbe1;
+  --accent:#0b6a8f; --accent-soft:#dcedf4; --dc:#6b3fa0;
+  --ok:#2c7a4b; --warn:#b26a00; --crit:#c0342b; --off:#9aa5b0;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --display:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11171d; --surface:#1a222b; --ink:#e6ebf0; --muted:#97a4b1; --rule:#2e3944;
+    --accent:#5cb8dc; --accent-soft:#1d3a48; --dc:#b99be6;
+    --ok:#5fbf85; --warn:#e3a13c; --crit:#f0746a; --off:#5d6a77;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11171d; --surface:#1a222b; --ink:#e6ebf0; --muted:#97a4b1; --rule:#2e3944;
+  --accent:#5cb8dc; --accent-soft:#1d3a48; --dc:#b99be6;
+  --ok:#5fbf85; --warn:#e3a13c; --crit:#f0746a; --off:#5d6a77;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45}
+.wrap{max-width:1260px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:baseline;justify-content:space-between}
+h1{font-family:var(--display);font-size:26px;font-weight:600;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-size:15px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:0;color:var(--muted)}
+.formula{font-family:var(--mono);font-size:14px;color:var(--muted)}
+.formula b{color:var(--ink);font-weight:600}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:14px 16px}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;font-size:13px;padding:6px 12px;border-radius:4px;border:1px solid var(--accent);background:var(--surface);color:var(--accent);cursor:pointer}
+button:hover{background:var(--accent-soft)}
+button[aria-pressed="true"]{background:var(--accent);color:var(--surface)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(310px,1fr);gap:16px;align-items:start}
+.left{display:flex;flex-direction:column;gap:16px;min-width:0}
+.col{display:flex;flex-direction:column;gap:10px}
+.status{font-size:14px;padding:8px 12px;border-radius:4px;background:var(--accent-soft);border-left:4px solid var(--accent)}
+.status.crit{border-left-color:var(--crit)} .status.warn{border-left-color:var(--warn)} .status.ok{border-left-color:var(--ok)}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.tile{border:1px solid var(--rule);border-left:4px solid var(--rule);border-radius:6px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile .v{font-family:var(--mono);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.tile .s{font-size:12px;color:var(--muted)}
+.tile.ok{border-left-color:var(--ok)} .tile.warn{border-left-color:var(--warn)} .tile.crit{border-left-color:var(--crit)}
+svg{width:100%;height:auto;display:block}
+.chart{display:flex;flex-direction:column;gap:4px}
+.chart h3{font-size:13px;font-weight:600;margin:0}
+.chart svg{touch-action:none;cursor:crosshair}
+.clegend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--muted)}
+.clegend i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+.clegend i.dash{border-top-style:dashed}
+.clegend b.sw{display:inline-block;width:14px;height:10px;background:var(--accent-soft);vertical-align:middle;margin-right:6px}
+.readout{font-family:var(--mono);font-size:12px;color:var(--muted);min-height:18px;font-variant-numeric:tabular-nums}
+.gridl{stroke:var(--rule);stroke-width:1} .zero{stroke:var(--muted);stroke-width:1}
+.axt{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+.endl{font-family:var(--body);font-size:11px;fill:var(--ink)}
+.cross{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3}
+.evl{stroke:var(--ink);stroke-width:1;stroke-dasharray:4 3}
+.lim{stroke:var(--crit);stroke-width:1.5;stroke-dasharray:6 4}
+.band{fill:var(--accent-soft)}
+/* controles */
+.controls{display:flex;flex-direction:column;gap:12px}
+.card{border:1px solid var(--rule);border-left:4px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.card.off>*:not(.chead){opacity:.45}
+.chead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chead b{font-family:var(--display);font-size:16px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.row label{font-size:14px}
+.row output{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600}
+.row input[type=range]{grid-column:1/-1}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
+input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;margin:0}
+select{font:inherit;font-size:14px;padding:4px 6px;border:1px solid var(--rule);border-radius:4px;background:var(--surface);color:var(--ink);max-width:100%}
+.seg{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:14px}
+.seg>span{margin-right:4px}
+.seg button{padding:3px 9px;font-size:12px}
+.seg button:disabled{opacity:.4;cursor:default}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check input{margin-top:3px;flex:none}
+.hint{font-size:12px;color:var(--muted);margin:0}
+.lab{display:flex;flex-direction:column;gap:4px;font-size:14px}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.notes p{margin:6px 0 0;font-size:14px;color:var(--muted);max-width:65ch}
+/* esquema */
+.t{font-family:var(--body);font-size:12px;fill:var(--ink)}
+.tb{font-family:var(--body);font-size:13px;font-weight:600;fill:var(--ink)}
+.tm{font-family:var(--mono);font-size:12px;font-weight:600;fill:var(--ink)}
+.ts{font-family:var(--body);font-size:11.5px;fill:var(--muted)}
+.box{fill:var(--surface);stroke:var(--muted);stroke-width:1.5}
+.conv{fill:var(--surface);stroke-width:2.5}
+.wire{stroke:var(--muted);stroke-width:1.5;fill:none}
+.bus{stroke:var(--dc);stroke-width:5;fill:none;stroke-linecap:round}
+.link{stroke:var(--dc);stroke-width:2.5;fill:none}
+.gone{opacity:.3}
+@media (max-width:940px){.main{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Simulador de roles de control HVDC</h1>
+    <div class="formula">El balance DC debe cerrarse en algún lado: <b>T · V · dV/dt = Σ P</b> &nbsp;·&nbsp; enlace VSC de 1000 MW</div>
+  </header>
+
+  <section class="panel col" aria-label="Escenarios">
+    <h2>Escenarios</h2>
+    <div class="presets" id="presets"></div>
+  </section>
+
+  <div class="main">
+    <div class="left">
+      <section class="panel col" aria-label="Esquema y resultado">
+        <div class="status" id="status" role="status"></div>
+        <svg id="sch" viewBox="0 0 720 290" role="img" aria-label="Esquema de las estaciones conectadas al circuito DC"></svg>
+        <div class="tiles" id="tiles"></div>
+      </section>
+      <section class="panel col" aria-label="Respuesta en el tiempo">
+        <h2>Respuesta en el tiempo</h2>
+        <div class="chart">
+          <h3>Tensión del circuito DC (pu)</h3>
+          <div class="clegend"><span><b class="sw"></b>banda normal, ±5 %</span><span><i class="dash" style="border-color:var(--crit)"></i>límites de protección</span><span><i class="dash" style="border-color:var(--ink)"></i>evento</span></div>
+          <svg id="ch1" viewBox="0 0 720 210" role="img" aria-label="Tensión DC en el tiempo"></svg>
+          <div class="readout" id="ro1"></div>
+        </div>
+        <div class="chart">
+          <h3>Potencia que cada estación inyecta al circuito DC (MW)</h3>
+          <div class="clegend" id="leg2"></div>
+          <svg id="ch2" viewBox="0 0 720 220" role="img" aria-label="Potencia de cada estación en el tiempo"></svg>
+          <div class="readout" id="ro2"></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel controls" aria-label="Configuración">
+      <h2>Estaciones</h2>
+      <div id="cards" class="col"></div>
+      <h2>Evento a los 0,2 s</h2>
+      <div class="card">
+        <label class="lab" for="evt">Qué ocurre
+          <select id="evt">
+            <option value="none">Nada: solo el punto de operación</option>
+            <option value="step">Cambio de potencia en una estación</option>
+            <option value="fault">Falla en la red AC de una estación (150 ms)</option>
+            <option value="trip">Pérdida de una estación</option>
+          </select></label>
+        <div class="seg" id="evk" role="group" aria-label="Estación del evento"><span>Estación</span></div>
+        <div class="row" id="evrow"><label for="evv">Nueva potencia</label><output id="evvo"></output>
+          <input type="range" id="evv" min="-1100" max="1100" step="50"></div>
+      </div>
+      <h2>Respaldo</h2>
+      <div class="card">
+        <label class="check" for="relevo"><input type="checkbox" id="relevo"><span>Relevo automático: una estación en control de P pasa a sostener V<sub>DC</sub> si sale de la banda de ±8 %</span></label>
+        <label class="check" for="chop"><input type="checkbox" id="chop"><span>Chopper DC: disipa el exceso de potencia cuando V<sub>DC</sub> supera 1,12 pu</span></label>
+      </div>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div class="panel"><h2>Cómo leerlo</h2>
+      <p>La suma de las potencias que entran y salen del circuito DC debe ser cero. Lo que sobra carga sus condensadores y sube la tensión; lo que falta la hunde. La estación que controla V<sub>DC</sub> absorbe esa diferencia; las demás entregan lo que se les ordena. Cambia los papeles y mira dónde se rompe.</p></div>
+    <div class="panel"><h2>Qué calcula</h2>
+      <p>Un circuito DC con una sola tensión y la energía de sus condensadores, y hasta tres convertidores VSC con un lazo de corriente de primer orden. Una red débil (SCR bajo) hace más lento ese lazo y reduce la tensión en el punto de conexión, y con ella la potencia máxima. Protección: disparo si V<sub>DC</sub> sale de 0,7 a 1,3 pu.</p></div>
+    <div class="panel"><h2>Qué deja fuera</h2>
+      <p>Resistencia y dinámica de cables, PLL, potencia reactiva, bloqueo de convertidores y fallas DC. Es un enlace VSC: en un LCC clásico el rectificador controla la corriente y el inversor la tensión, y los papeles se intercambian al invertir el flujo. Tampoco decide los criterios contractuales entre operadores. Parámetros ilustrativos.</p></div>
+  </section>
+</div>
+
+<script>
+/* ---------- Modelo dinámico simplificado de un enlace VSC de hasta tres terminales ----------
+   Por unidad sobre 1000 MW y 640 kV. Potencia positiva = la estación inyecta al lado DC.
+   Balance DC: Tc · V · dV/dt = Σ P.  Cada estación: lazo de corriente de primer orden. */
+const K = {Tc:0.12, Imax:1.1, Kp:8, Ki:120, Kd:20, Kb:25, band:0.08, chopOn:1.12, Kc:20,
+           vHi:1.3, vLo:0.7, tEv:0.2, tFault:0.15, dip:0.2, T:2, dt:0.0005};
+const clampv = (v,a,b) => Math.max(a, Math.min(b, v));
+const tauOf = scr => 0.004*(1 + 10/scr);                 // red débil: lazo interno más lento
+const pccOf = (ug, i, scr) => Math.max(0.05, ug*(1 - 0.3*Math.abs(i)/scr));   // la tensión cae con la corriente
+
+function simulate(cfg){
+  const S = cfg.st.map(s => ({...s}));
+  const live = k => S[k].on;
+  const run = (preroll) => {
+    const n = S.length, i = Array(n).fill(0), integ = Array(n).fill(0), tripd = Array(n).fill(false);
+    let V = 1;
+    // punto inicial: las estaciones con consigna la cumplen y las de tensión cierran el balance
+    let sum = 0; const vs = [];
+    S.forEach((s,k)=>{ if(!s.on) return;
+      if(s.type!=='grid' || s.mode==='P'){ i[k]=clampv(s.p,-K.Imax,K.Imax); sum+=i[k]; } else vs.push(k); });
+    vs.forEach(k=>{ i[k]=clampv((S[k].mode==='D'?S[k].p:0) - (sum + (S[k].mode==='D'?vs.reduce((a,j)=>a+S[j].p,0):0))/vs.length, -K.Imax, K.Imax); integ[k]=i[k]; });
+    const out = {t:[], v:[], p:S.map(()=>[]), u:S.map(()=>[]), chop:[], trip:null};
+    const t0 = preroll ? -1.5 : 0;
+    for(let t=t0; t<=K.T+1e-9; t+=K.dt){
+      const evOn = t>=K.tEv, ev = cfg.ev;
+      let P = 0, pk = Array(n).fill(0), uk = Array(n).fill(1);
+      for(let k=0;k<n;k++){ const s=S[k]; if(!s.on) continue;
+        if(evOn && ev.type==='trip' && ev.k===k) tripd[k]=true;
+        const ug = (evOn && ev.type==='fault' && ev.k===k && t<K.tEv+K.tFault) ? K.dip : 1;
+        const pOrd = (evOn && ev.type==='step' && ev.k===k) ? ev.val : s.p;
+        let ref;
+        if(tripd[k]){ i[k]=0; uk[k]=1; continue; }
+        if(s.type!=='grid'){                              // forma su red: la potencia la impone el viento o la carga
+          uk[k]=ug; ref = clampv(pOrd, -K.Imax, K.Imax);
+          i[k] += (ref - i[k])*K.dt/0.01; pk[k]=uk[k]*i[k]; P+=pk[k]; continue; }
+        const u = pccOf(ug, i[k], s.scr); uk[k]=u;
+        if(s.mode==='V'){ const e = V-1;                   // V alta → extraer más (corriente negativa)
+          const raw = -K.Kp*e + integ[k];
+          ref = clampv(raw, -K.Imax, K.Imax);
+          if(raw===ref || Math.sign(-e)!==Math.sign(raw)) integ[k] = clampv(integ[k] - K.Ki*e*K.dt, -K.Imax, K.Imax);
+        } else if(s.mode==='D'){ ref = clampv(pOrd/u - K.Kd*(V-1), -K.Imax, K.Imax);
+        } else { ref = pOrd/u;
+          if(cfg.relevo){ if(V>1+K.band) ref -= K.Kb*(V-1-K.band); else if(V<1-K.band) ref += K.Kb*(1-K.band-V); }
+          ref = clampv(ref, -K.Imax, K.Imax); }
+        i[k] += (ref - i[k])*K.dt/tauOf(s.scr);
+        pk[k] = u*i[k]; P += pk[k];
+      }
+      const pc = cfg.chopper && V>K.chopOn ? Math.min(K.Imax, K.Kc*(V-K.chopOn))*V : 0;
+      P -= pc;
+      if(t>=-1e-9 && Math.round(t/K.dt)%8===0){ out.t.push(Math.max(0,t)); out.v.push(V); out.chop.push(pc);
+        for(let k=0;k<n;k++){ out.p[k].push(S[k].on?pk[k]:0); out.u[k].push(uk[k]); } }
+      V += P/(K.Tc*V)*K.dt;
+      if(V>K.vHi || V<K.vLo){ out.trip = {t, kind: V>K.vHi?'over':'under', pre:t<0};
+        if(t>=0){ out.t.push(t); out.v.push(V); out.chop.push(pc); for(let k=0;k<n;k++){ out.p[k].push(S[k].on?pk[k]:0); out.u[k].push(uk[k]); } }
+        break; }
+    }
+    return out;
+  };
+  let r = run(true);
+  if(r.trip && r.trip.pre){ r = run(false); r.noSteady = true; }
+  // métricas
+  const iEv = r.t.findIndex(t=>t>=K.tEv), vAfter = r.v.slice(Math.max(0,iEv));
+  r.vmax = Math.max(...r.v); r.vmin = Math.min(...r.v);
+  const vEnd = r.v[r.v.length-1]; r.vEnd = vEnd;
+  let cross=0, last=0; for(const v of vAfter){ const d=v-vEnd; if(Math.abs(d)>0.01){ const sg=Math.sign(d); if(last && sg!==last) cross++; last=sg; } }
+  r.osc = cross;
+  let ts = null; for(let j=r.v.length-1;j>=iEv;j--) if(Math.abs(r.v[j]-vEnd)>0.01){ ts=r.t[Math.min(j+1,r.t.length-1)]-K.tEv; break; }
+  r.settle = ts;
+  return r;
+}
+
+
+/* ---------- Estado ---------- */
+const NAMES = ['A','B','C'], SC = ['s1','s2','s3'];
+const mk = (type,mode,p,scr,on=true) => ({type,mode,p,scr,on});
+const PRESETS = [
+  {name:'Reparto habitual', cfg:{st:[mk('grid','P',0.8,3),mk('grid','V',0,8),mk('grid','P',0,5,false)], ev:{type:'step',k:0,val:0.3}, relevo:false, chopper:false}},
+  {name:'Nadie regula V DC', cfg:{st:[mk('grid','P',0.8,5),mk('grid','P',-0.75,5),mk('grid','P',0,5,false)], ev:{type:'none',k:0,val:0}, relevo:false, chopper:false}},
+  {name:'V DC en la red débil', cfg:{st:[mk('grid','V',0,1.5),mk('grid','P',-0.5,8),mk('grid','P',0,5,false)], ev:{type:'step',k:1,val:-0.9}, relevo:false, chopper:false}},
+  {name:'Sin holgura', cfg:{st:[mk('grid','P',0.6,5),mk('grid','V',0,5),mk('grid','P',0.3,5)], ev:{type:'step',k:2,val:0.6}, relevo:false, chopper:false}},
+  {name:'Falla en la estación de V DC', cfg:{st:[mk('grid','P',0.8,5),mk('grid','V',0,5),mk('grid','P',0,5,false)], ev:{type:'fault',k:1,val:0}, relevo:false, chopper:false}},
+  {name:'La misma falla, con relevo', cfg:{st:[mk('grid','P',0.8,5),mk('grid','V',0,5),mk('grid','P',0,5,false)], ev:{type:'fault',k:1,val:0}, relevo:true, chopper:false}},
+  {name:'Eólica marina con ráfaga', cfg:{st:[mk('wind','P',0.6,5),mk('grid','V',0,5),mk('grid','P',0,5,false)], ev:{type:'step',k:0,val:1.0}, relevo:false, chopper:true}},
+  {name:'Multiterminal con una slack', cfg:{st:[mk('grid','P',0.7,5),mk('grid','V',0,5),mk('grid','P',-0.3,5)], ev:{type:'trip',k:1,val:0}, relevo:false, chopper:false}},
+  {name:'Multiterminal con droop', cfg:{st:[mk('grid','D',0.7,5),mk('grid','D',-0.4,5),mk('grid','D',-0.3,5)], ev:{type:'trip',k:1,val:0}, relevo:false, chopper:false}},
+];
+let cfg = JSON.parse(JSON.stringify(PRESETS[0].cfg)), active = 0;
+
+const $ = id => document.getElementById(id);
+const SVGNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs={}, parent, text){ const e=document.createElementNS(SVGNS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]); if(text!==undefined) e.textContent=text; if(parent) parent.appendChild(e); return e; }
+const fmt = (v,d=0) => { const r = Math.abs(v) < 0.5*Math.pow(10,-d) ? 0 : v; return r.toFixed(d).replace('-', '−').replace('.', ','); };
+const signed = (v,d=0) => { const t = fmt(v,d); return (v>0 && !/^0(,0+)?$/.test(t) ? '+' : '') + t; };
+const mw = p => Math.round(p*1000);
+const TYPE = {grid:'Red AC', wind:'Parque eólico marino', load:'Carga aislada'};
+const roleOf = s => s.type==='wind' ? 'Forma la red del parque' : s.type==='load' ? 'Forma la red de la isla'
+  : s.mode==='V' ? 'Controla V DC' : s.mode==='D' ? 'Droop: comparte V DC' : 'Controla P';
+
+/* ---------- Tarjetas de estación ---------- */
+function buildCards(){
+  $('cards').innerHTML = NAMES.map((n,k)=>`
+    <div class="card" id="card${k}" style="border-left-color:var(--${SC[k]})">
+      <div class="chead"><b>Estación ${n}</b>
+        ${k===2?`<label class="check" for="on2"><input type="checkbox" id="on2"><span>En servicio</span></label>`:`<span class="hint" id="role${k}"></span>`}</div>
+      <label class="lab" for="type${k}">Conecta a
+        <select id="type${k}"><option value="grid">Red AC</option><option value="wind">Parque eólico marino</option><option value="load">Carga aislada (isla pasiva)</option></select></label>
+      <div class="seg" id="mode${k}" role="group" aria-label="Modo de control de la estación ${n}"><span>Controla</span>
+        <button type="button" data-v="P">P</button><button type="button" data-v="V">V DC</button><button type="button" data-v="D">Droop</button></div>
+      <div class="row"><label for="p${k}" id="pl${k}"></label><output id="po${k}"></output>
+        <input type="range" id="p${k}" min="-1100" max="1100" step="50"></div>
+      <div class="row" id="scrrow${k}"><label for="scr${k}">Fortaleza de la red AC (SCR)</label><output id="scro${k}"></output>
+        <input type="range" id="scr${k}" min="1.2" max="10" step="0.1"></div>
+    </div>`).join('');
+  NAMES.forEach((n,k)=>{
+    $('type'+k).addEventListener('change',e=>{ const s=cfg.st[k]; s.type=e.target.value;
+      if(s.type==='wind') s.p=Math.abs(s.p)||0.6; if(s.type==='load') s.p=-(Math.abs(s.p)||0.6); touch(); });
+    $('mode'+k).querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{ cfg.st[k].mode=b.dataset.v; touch(); }));
+    $('p'+k).addEventListener('input',e=>{ cfg.st[k].p=e.target.value/1000; touch(); });
+    $('scr'+k).addEventListener('input',e=>{ cfg.st[k].scr=+e.target.value; touch(); });
+  });
+  $('on2').addEventListener('change',e=>{ cfg.st[2].on=e.target.checked; if(!cfg.st[2].on && cfg.ev.k===2) cfg.ev.k=0; touch(); });
+  NAMES.forEach((n,k)=>{ const b=document.createElement('button'); b.type='button'; b.textContent=n; b.dataset.v=k;
+    b.addEventListener('click',()=>{ cfg.ev.k=k; touch(); }); $('evk').appendChild(b); });
+  $('evt').addEventListener('change',e=>{ cfg.ev.type=e.target.value; touch(); });
+  $('evv').addEventListener('input',e=>{ cfg.ev.val=e.target.value/1000; touch(); });
+  $('relevo').addEventListener('change',e=>{ cfg.relevo=e.target.checked; touch(); });
+  $('chop').addEventListener('change',e=>{ cfg.chopper=e.target.checked; touch(); });
+  PRESETS.forEach((p,i)=>{ const b=document.createElement('button'); b.type='button'; b.textContent=p.name;
+    b.addEventListener('click',()=>{ cfg=JSON.parse(JSON.stringify(p.cfg)); active=i; sync(); render(); }); $('presets').appendChild(b); });
+}
+function touch(){ active=-1; sync(); render(); }
+function sync(){
+  document.querySelectorAll('#presets button').forEach((b,i)=>b.setAttribute('aria-pressed',String(i===active)));
+  cfg.st.forEach((s,k)=>{
+    const grid = s.type==='grid';
+    $('card'+k).classList.toggle('off', !s.on);
+    $('type'+k).value=s.type;
+    $('mode'+k).querySelectorAll('button').forEach(b=>{ b.setAttribute('aria-pressed',String(grid && b.dataset.v===s.mode)); b.disabled=!grid; });
+    const pin=$('p'+k);
+    if(s.type==='wind'){ pin.min=0; pin.max=1100; $('pl'+k).textContent='Producción del viento'; }
+    else if(s.type==='load'){ pin.min=-1100; pin.max=0; $('pl'+k).textContent='Demanda de la isla'; }
+    else { pin.min=-1100; pin.max=1100; $('pl'+k).textContent = s.mode==='V' ? 'Potencia: la que el balance exija' : s.mode==='D' ? 'Potencia de referencia del droop' : 'Consigna de potencia'; }
+    pin.value=mw(s.p); pin.disabled = grid && s.mode==='V';
+    $('po'+k).textContent = grid && s.mode==='V' ? 'libre' : s.type==='load' ? fmt(-mw(s.p))+' MW' : signed(mw(s.p))+' MW';
+    $('scrrow'+k).style.display = grid ? '' : 'none';
+    $('scr'+k).value=s.scr; $('scro'+k).textContent=fmt(s.scr,1)+(s.scr<2?' · muy débil':s.scr<3?' · débil':s.scr>=5?' · fuerte':'');
+    if(k<2) $('role'+k).textContent=roleOf(s);
+  });
+  $('on2').checked=cfg.st[2].on;
+  $('evt').value=cfg.ev.type;
+  const needK = cfg.ev.type!=='none';
+  $('evk').style.display = needK?'':'none';
+  $('evk').querySelectorAll('button').forEach(b=>{ const k=+b.dataset.v; b.setAttribute('aria-pressed',String(k===cfg.ev.k)); b.disabled=!cfg.st[k].on; });
+  const es=cfg.st[cfg.ev.k], stepOk = cfg.ev.type==='step';
+  $('evrow').style.display = stepOk?'':'none';
+  const ev=$('evv'); if(es.type==='wind'){ ev.min=0; ev.max=1100; } else if(es.type==='load'){ ev.min=-1100; ev.max=0; } else { ev.min=-1100; ev.max=1100; }
+  ev.value=mw(cfg.ev.val); $('evvo').textContent = es.type==='load' ? fmt(-mw(cfg.ev.val))+' MW' : signed(mw(cfg.ev.val))+' MW';
+  $('relevo').checked=cfg.relevo; $('chop').checked=cfg.chopper;
+}
+
+/* ---------- Esquema ---------- */
+function drawScheme(r){
+  const s=$('sch'); s.innerHTML=''; s.setAttribute('viewBox', cfg.st[2].on ? '0 52 720 232' : '0 52 720 130');
+  const n=r.v.length-1, tripEv = cfg.ev.type==='trip' ? cfg.ev.k : -1;
+  const vEnd=r.vEnd, vc = r.trip?'crit':Math.abs(vEnd-1)>0.05?'warn':'ok';
+  el('path',{d:'M232 120 H488',class:'bus'},s);
+  el('text',{x:360,y:96,class:'tm','text-anchor':'middle',style:`font-size:14px;fill:var(--${vc})`},s,
+    r.trip ? (r.trip.kind==='over'?'V DC: sobretensión':'V DC: colapso') : `V DC = ${fmt(vEnd,2)} pu · ${fmt(vEnd*640)} kV`);
+  el('text',{x:290,y:138,class:'ts','text-anchor':'middle'},s,'circuito DC');
+  if(cfg.chopper){ el('path',{d:'M450 120 V142',class:'link'},s); el('rect',{x:441,y:142,width:18,height:22,class:'box',style:'stroke:var(--dc)'},s);
+    el('text',{x:464,y:157,class:'ts'},s,'chopper'+(Math.max(...r.chop)>0.01?' · actuó':'')); }
+  const G = [ {cx:160,cy:120,gx:20,gy:95, lx:160,anchor:'middle', link:'M180 120 H232', ax:206,ay:120,rot:0},
+              {cx:560,cy:120,gx:610,gy:95,lx:560,anchor:'middle', link:'M488 120 H540', ax:514,ay:120,rot:180},
+              {cx:360,cy:192,gx:315,gy:238,lx:392,anchor:'start', link:'M360 120 V172', ax:360,ay:147,rot:-90} ];
+  cfg.st.forEach((st,k)=>{ if(!st.on) return; const g=G[k], c=`var(--${SC[k]})`, p=r.p[k][n], gone = k===tripEv || (r.trip!==null);
+    const grp=el('g',{class: k===tripEv?'gone':''},s);
+    el('path',{d:g.link,class:'link'},grp);
+    if(k<2) el('path',{d:k===0?'M110 120 H140':'M580 120 H610',class:'wire'},grp); else el('path',{d:'M360 212 V238',class:'wire'},grp);
+    el('rect',{x:g.gx,y:g.gy,width:90,height:k<2?50:40,rx:6,class:'box'},grp);
+    const gl = st.type==='grid'?['Red '+NAMES[k],`SCR ${fmt(st.scr,1)}`]:st.type==='wind'?['Parque','eólico']:['Carga','aislada'];
+    el('text',{x:g.gx+45,y:g.gy+(k<2?22:17),class:'tb','text-anchor':'middle'},grp,gl[0]);
+    el('text',{x:g.gx+45,y:g.gy+(k<2?38:32),class:'ts','text-anchor':'middle'},grp,gl[1]);
+    el('rect',{x:g.cx-20,y:g.cy-20,width:40,height:40,class:'conv',style:`stroke:${c}`},grp);
+    el('line',{x1:g.cx-20,y1:g.cy+20,x2:g.cx+20,y2:g.cy-20,stroke:c,'stroke-width':1.5},grp);
+    el('text',{x:g.cx,y:g.cy+5,class:'tb','text-anchor':'middle',style:'paint-order:stroke;stroke:var(--surface);stroke-width:4px'},grp,NAMES[k]);
+    if(Math.abs(p)>0.005 && k!==tripEv) el('polygon',{points:'-8,-6 8,0 -8,6',fill:'var(--dc)',transform:`translate(${g.ax} ${g.ay}) rotate(${g.rot+(p>0?0:180)})`},grp);
+    const ty = k<2 ? [g.cy-44,g.cy-29,g.cy+38,g.cy+53] : [g.cy-8,g.cy+7,g.cy+22,g.cy+37];
+    el('text',{x:g.lx,y:ty[0],class:'tb','text-anchor':g.anchor},grp, k===tripEv?'Fuera de servicio':roleOf(st));
+    el('text',{x:g.lx,y:ty[1],class:'ts','text-anchor':g.anchor},grp, st.type==='grid'&&st.mode==='P'?`consigna ${signed(mw(cfg.ev.type==='step'&&cfg.ev.k===k?cfg.ev.val:st.p))} MW`:st.type==='grid'&&st.mode==='D'?`referencia ${signed(mw(st.p))} MW`:st.type==='grid'?'cierra el balance':'la potencia no es una orden');
+    el('text',{x:g.lx,y:ty[2],class:'tm','text-anchor':g.anchor},grp, `${signed(mw(p))} MW`);
+    el('text',{x:g.lx,y:ty[3],class:'ts','text-anchor':g.anchor},grp, Math.abs(p)<0.005?'sin intercambio':p>0?'inyecta al DC':'extrae del DC');
+  });
+}
+
+/* ---------- Gráficos ---------- */
+function niceStep(range, n){ const raw=range/n, p=Math.pow(10,Math.floor(Math.log10(raw))), m=raw/p; return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
+function drawChart(id, roId, r, series, y0, y1, dec, unit, extra){
+  const svg=$(id), vb=svg.viewBox.baseVal, W=vb.width, H=vb.height, L=50, R=150, T=10, B=24, t=r.t;
+  svg.innerHTML='';
+  const X=v=>L+(W-L-R)*v/K.T, Y=v=>T+(H-T-B)*(y1-v)/(y1-y0);
+  if(extra && extra.band) el('rect',{x:L,y:Y(extra.band[1]),width:W-L-R,height:Y(extra.band[0])-Y(extra.band[1]),class:'band'},svg);
+  const st=niceStep(y1-y0,5);
+  for(let v=Math.ceil(y0/st-1e-9)*st; v<=y1+1e-9; v+=st){
+    el('line',{x1:L,x2:W-R,y1:Y(v),y2:Y(v),class:Math.abs(v)<1e-9?'zero':'gridl'},svg);
+    el('text',{x:L-6,y:Y(v)+4,class:'axt','text-anchor':'end'},svg,fmt(v,dec)); }
+  for(let v=0; v<=K.T+1e-9; v+=0.5) el('text',{x:X(v),y:H-6,class:'axt','text-anchor':'middle'},svg,fmt(v,1)+' s');
+  if(extra && extra.lims) for(const v of extra.lims) if(v>y0 && v<y1) el('line',{x1:L,x2:W-R,y1:Y(v),y2:Y(v),class:'lim'},svg);
+  if(cfg.ev.type!=='none'){ el('line',{x1:X(K.tEv),x2:X(K.tEv),y1:T,y2:H-B,class:'evl'},svg);
+    if(cfg.ev.type==='fault') el('line',{x1:X(K.tEv+K.tFault),x2:X(K.tEv+K.tFault),y1:T,y2:H-B,class:'evl'},svg); }
+  const ends=[];
+  for(const s of series){
+    const d=s.data.map((v,i)=>(i?'L':'M')+X(t[i]).toFixed(1)+' '+Y(Math.max(y0,Math.min(y1,v))).toFixed(1)).join('');
+    el('path',{d,fill:'none',stroke:`var(--${s.c})`,'stroke-width':2,'stroke-linejoin':'round'},svg);
+    const last=s.data[s.data.length-1], lx=X(t[t.length-1]), ly=Y(Math.max(y0,Math.min(y1,last)));
+    el('circle',{cx:lx,cy:ly,r:4,fill:`var(--${s.c})`,stroke:'var(--surface)','stroke-width':2},svg);
+    ends.push({y:ly,x:lx,txt:`${s.short} ${fmt(last,dec)} ${unit}`});
+  }
+  if(r.trip){ const x=X(r.trip.t); el('text',{x:x+6,y:T+12,class:'endl',style:'fill:var(--crit);font-weight:600'},svg,`disparo a ${fmt(r.trip.t,2)} s`); }
+  ends.sort((a,b)=>a.y-b.y);
+  for(let i=1;i<ends.length;i++) if(ends[i].y-ends[i-1].y<13) ends[i].y=ends[i-1].y+13;
+  if(!r.trip) for(const e of ends) el('text',{x:W-R+10,y:e.y+4,class:'endl'},svg,e.txt);
+  const cross=el('line',{y1:T,y2:H-B,class:'cross',style:'display:none'},svg);
+  const dots=series.map(s=>el('circle',{r:4,fill:`var(--${s.c})`,stroke:'var(--surface)','stroke-width':2,style:'display:none'},svg));
+  const hit=el('rect',{x:L,y:T,width:W-L-R,height:H-T-B,fill:'transparent'},svg);
+  const ro=$(roId); ro.textContent='Pasa el cursor por el gráfico para leer valores.';
+  const move=e=>{ const b=svg.getBoundingClientRect(); const tx=((e.clientX-b.left)*W/b.width-L)/(W-L-R)*K.T;
+    let i=0; while(i<t.length-1 && t[i]<tx) i++;
+    cross.setAttribute('x1',X(t[i])); cross.setAttribute('x2',X(t[i])); cross.style.display='';
+    series.forEach((s,k)=>{ dots[k].setAttribute('cx',X(t[i])); dots[k].setAttribute('cy',Y(Math.max(y0,Math.min(y1,s.data[i])))); dots[k].style.display=''; });
+    ro.textContent=`t = ${fmt(t[i],2)} s · `+series.map(s=>`${s.short} ${fmt(s.data[i],dec)} ${unit}`).join(' · '); };
+  hit.addEventListener('pointermove',move); hit.addEventListener('pointerdown',move);
+  hit.addEventListener('pointerleave',()=>{ cross.style.display='none'; dots.forEach(d=>d.style.display='none'); });
+}
+
+/* ---------- Veredicto ---------- */
+function verdict(r){
+  const on = cfg.st.map((s,k)=>({s,k})).filter(o=>o.s.on && !(cfg.ev.type==='trip' && cfg.ev.k===o.k));
+  const regs = on.filter(o=>o.s.type==='grid' && o.s.mode!=='P');
+  const slack = regs.filter(o=>o.s.mode==='V'), droop = regs.filter(o=>o.s.mode==='D');
+  const names = a => a.map(o=>NAMES[o.k]).join(' y ');
+  const n=r.v.length-1, sumOrd = on.filter(o=>!(o.s.type==='grid'&&o.s.mode==='V')).reduce((a,o)=>a+(cfg.ev.type==='step'&&cfg.ev.k===o.k?cfg.ev.val:o.s.p),0);
+  const evTxt = {step:`el cambio de potencia en ${NAMES[cfg.ev.k]}`, fault:`la falla en la red de ${NAMES[cfg.ev.k]}`, trip:`la pérdida de la estación ${NAMES[cfg.ev.k]}`, none:''}[cfg.ev.type];
+  const chopAct = Math.max(...r.chop)>0.01;
+  let who = regs.length ? names(regs) : cfg.relevo && on.some(o=>o.s.type==='grid') ? 'el relevo' : cfg.chopper ? 'solo el chopper' : 'nadie';
+  let msg, cls;
+  if(r.trip){ cls='crit'; const dir = r.trip.kind==='over' ? 'sube hasta el límite de sobretensión' : 'cae hasta el límite de subtensión';
+    const when = `${fmt(r.trip.t - (r.noSteady?0:K.tEv),2)} s`;
+    if(r.noSteady) msg = !regs.length
+        ? `Ninguna estación regula V DC y las consignas no suman cero: ${r.trip.kind==='over'?'sobran':'faltan'} ${fmt(Math.abs(mw(sumOrd)))} MW. La tensión ${dir} en ${when} y el enlace dispara.`
+        : `La estación que regula V DC no alcanza a cerrar el balance: tendría que ${sumOrd>0?'extraer':'inyectar'} ${fmt(Math.abs(mw(sumOrd)))} MW y su corriente máxima no da. La tensión ${dir} en ${when}.`;
+    else if(cfg.ev.type==='fault' && regs.some(o=>o.k===cfg.ev.k) && slack.length===1) msg = `La falla deja a la estación ${NAMES[cfg.ev.k]}, la que regula V DC, sin capacidad de intercambiar potencia. Las demás siguen cumpliendo su consigna y la tensión ${dir} en ${when}. Hace falta un relevo${r.trip.kind==='over'?' o un chopper':''}.`;
+    else if(cfg.ev.type==='trip' && !regs.length) msg = `Con la estación ${NAMES[cfg.ev.k]} fuera, nadie regula V DC. El desbalance de ${fmt(Math.abs(mw(sumOrd)))} MW no tiene quién lo absorba y la tensión ${dir} en ${when}.`;
+    else msg = `Tras ${evTxt}, la estación que regula V DC llega a su límite de corriente${regs.some(o=>o.s.scr<3)?', reducido por la debilidad de su red':''}, y no puede cerrar el balance. La tensión ${dir} en ${when}.`;
+  } else if(Math.abs(r.vEnd-1)>0.05){ cls='warn';
+    msg = `El enlace sigue en servicio, pero V DC queda en ${fmt(r.vEnd,2)} pu, fuera de su banda normal. ${regs.length?'El reparto por droop deja un error permanente de tensión.':'Lo sostiene el respaldo, no un control de tensión: es un estado de emergencia.'}`;
+  } else { const dev=Math.max(r.vmax-1,1-r.vmin); cls = dev>0.1?'warn':'ok';
+    const closer = droop.length>1 ? `Las estaciones ${names(droop)} se reparten el desbalance por droop` : regs.length ? `La estación ${names(regs)} cierra el balance` : 'El respaldo cierra el balance';
+    msg = cfg.ev.type==='none' ? `${closer}. V DC se mantiene en ${fmt(r.vEnd,2)} pu.`
+      : `${closer} tras ${evTxt}. V DC se desvía como máximo ${fmt(dev*100,1)} %${chopAct?' con ayuda del chopper':''}${cfg.relevo&&dev>K.band?' y el relevo actuó':''} y ${r.settle!==null?`vuelve a su valor en ${fmt(r.settle,2)} s`:'no llega a salir de ±1 %'}.`;
+    if(droop.length && Math.abs(r.vEnd-1)>0.004) msg += ` Queda en ${fmt(r.vEnd,3)} pu: el droop cambia tensión por reparto.`;
+  }
+  // consignas no cumplidas
+  const miss = on.filter(o=>o.s.type==='grid'&&o.s.mode==='P'&&!r.trip).map(o=>({o,d:(cfg.ev.type==='step'&&cfg.ev.k===o.k?cfg.ev.val:o.s.p)-r.p[o.k][n]})).filter(x=>Math.abs(x.d)>0.02);
+  if(miss.length && !(cfg.relevo && Math.abs(r.vEnd-1)>0.05)) msg += ` La estación ${NAMES[miss[0].o.k]} entrega ${fmt(Math.abs(mw(r.p[miss[0].o.k][n])))} MW en lugar de ${fmt(Math.abs(mw(r.p[miss[0].o.k][n]+miss[0].d)))}: su red débil limita la potencia.`;
+  $('status').className='status '+cls; $('status').textContent=msg;
+  const res = r.trip ? (r.trip.kind==='over'?'Sobretensión':'Colapso') : cls==='ok' ? 'Estable' : 'En servicio, con reservas';
+  $('tiles').innerHTML = `
+    <div class="tile ${cls}"><span class="k">Resultado</span><span class="v">${res}</span><span class="s">${r.trip?`disparo a ${fmt(r.trip.t,2)} s`:'sin disparos'}</span></div>
+    <div class="tile"><span class="k">V DC máxima y mínima</span><span class="v">${fmt(r.vmax,2)} / ${fmt(r.vmin,2)}</span><span class="s">pu · ${fmt(r.vmax*640)} / ${fmt(r.vmin*640)} kV</span></div>
+    <div class="tile"><span class="k">Quién cierra el balance</span><span class="v">${who}</span><span class="s">${slack.length?'control de V DC':droop.length?'reparto por droop':'sin regulador de tensión'}</span></div>
+    <div class="tile"><span class="k">Recuperación tras el evento</span><span class="v">${r.trip||cfg.ev.type==='none'?'—':r.settle===null?'< 0,01 s':fmt(r.settle,2)+' s'}</span><span class="s">hasta ±1 % del valor final</span></div>`;
+}
+
+function render(){
+  const r = simulate(cfg);
+  drawScheme(r); verdict(r);
+  const lo=Math.min(0.9, Math.floor((r.vmin-0.02)*20)/20), hi=Math.max(1.1, Math.ceil((r.vmax+0.02)*20)/20);
+  drawChart('ch1','ro1',r,[{c:'dc',short:'V DC',data:r.v}],lo,hi,2,'pu',{band:[0.95,1.05],lims:[K.vLo,K.vHi]});
+  const ser = cfg.st.map((s,k)=>({s,k})).filter(o=>o.s.on).map(o=>({c:SC[o.k],short:NAMES[o.k],name:`Estación ${NAMES[o.k]} · ${roleOf(o.s)}`,data:r.p[o.k].map(v=>v*1000)}));
+  if(cfg.chopper) ser.push({c:'s4',short:'chopper',name:'Chopper DC (disipa)',data:r.chop.map(v=>-v*1000)});
+  drawChart('ch2','ro2',r,ser,-1200,1200,0,'MW');
+  $('leg2').innerHTML = ser.map(s=>`<span><i style="border-color:var(--${s.c})"></i>${s.name}</span>`).join('');
+}
+
+buildCards(); sync(); render();
+</script>
+</body>
+</html>
